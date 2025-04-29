@@ -48,3 +48,22 @@ Reading this in 2025, it’s clear the authors understood the direction of compu
 If you had internalised and acted on these ideas in 2007, you would have been 5–10 years ahead of the curve.
 
 
+- **File:** `matrix_add.cu`
+- **Summary:**
+  - Implemented three different approaches to matrix addition:
+    - Row-based parallelization (MatrixAdd_C)
+    - Block-based 2D parallelization (MatrixAdd_B)
+    - Column-based parallelization (MatrixAdd_D)
+  - Utilized 2D grid and block configurations for efficient matrix operations
+
+- **Learned:**
+  - 2D thread block and grid organization
+  - Different strategies for parallelizing matrix operations
+  - Memory access patterns in 2D data structures
+  - Using `dim3` for multi-dimensional kernel launches
+  - Importance of proper indexing in 2D matrix operations
+
+## Reading:
+### 📖 Reflections on "Programming Massively Parallel Processors" (2007)
+
+
