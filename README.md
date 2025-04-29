@@ -48,6 +48,12 @@ Reading this in 2025, it’s clear the authors understood the direction of compu
 If you had internalised and acted on these ideas in 2007, you would have been 5–10 years ahead of the curve.
 
 
+# Day 2 - Matrix Addition in CUDA
+
+#### File: matrix_add.cu
+#### Summary:
+Implemented matrix addition using CUDA, exploring different approaches to parallelize 2D data structures. Developed multiple kernel implementations to understand various parallelization strategies.
+
 - **File:** `matrix_add.cu`
 - **Summary:**
   - Implemented three different approaches to matrix addition:
