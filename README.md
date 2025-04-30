@@ -73,3 +73,39 @@ Implemented matrix addition using CUDA, exploring different approaches to parall
 ### 📖 Reflections on "Programming Massively Parallel Processors" (2007)
 
 
+
+# Day 3 - Matrix-Vector Multiplication in CUDA
+
+#### File: matrix_mul.cu
+#### Summary:
+Implemented an optimized matrix-vector multiplication using CUDA, exploring advanced memory management patterns and object-oriented CUDA programming concepts.
+
+- **File:** `matrix_mul.cu`
+- **Summary:**
+  - Implemented matrix-vector multiplication with shared memory optimization
+  - Developed a structured approach using modern C++ and CUDA best practices
+  - Created reusable components for CUDA memory management and computation
+  - Utilized template metaprogramming for generic CUDA operations
+
+- **Learned:**
+  - Advanced CUDA memory patterns:
+    - Shared memory utilization for vector caching
+    - Coalesced memory access patterns
+    - CUDA memory management using RAII principles
+  - Modern CUDA programming techniques:
+    - Template-based device memory management
+    - Error handling and validation
+    - Object-oriented CUDA design patterns
+  - Performance optimization strategies:
+    - Loop unrolling with #pragma unroll
+    - Efficient thread block configuration
+    - Shared memory usage for frequently accessed data
+
+- **Key Implementations:**
+  - Custom `DeviceMemoryManager` template for CUDA memory handling
+  - Enhanced kernel with shared memory optimization
+  - Structured error handling and dimension validation
+  - Object-oriented approach to CUDA operations
+
+This implementation demonstrates a more sophisticated approach to CUDA programming, combining modern C++ features with efficient GPU computing patterns. The focus was on creating maintainable, reusable, and efficient CUDA code while ensuring optimal performance through various optimization techniques.
+
