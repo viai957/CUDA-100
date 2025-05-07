@@ -1,4 +1,4 @@
-// extract same as 02.c
+// extract same as 02.cpp
 #include <stdio.h>
 
 typedef struct {
