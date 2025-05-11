@@ -3,40 +3,40 @@
 #include <time.h>
 #include <cuda_runtime.h>
 
-#define N 10000000 // Vector size is = 10Million
-#define BLOCK_SIZE 256 // 256 threads per block
+#define N 10000000 // Number of elements in the vectors = 10 million
+#define BLOCK_SIZE 256 // Number of threads per block
 
-// Example :
-// A = [1, 2, 3, 4, 5, 6,]
-// B = [6, 7, 8, 9, 10, 11]
-// C = [7, 9, 11, 13, 15, 17]
+// Example:
+// A = [1, 2, 3, 4, 5]
+// B = [6, 7, 8, 9, 10]
+// C = [7, 9, 11, 13, 15]
 
-// CPU vector addition
-void vector_add_cpu(float *a, float *b, float *c, int n){
+// CPU implementation
+void vector_add_cpu(float *a, float *b, float *c, int c){
     for (int i = 0; i < n; i++){
         c[i] = a[i] + b[i];
     }
-}
+}    
 
-// GPU vector addition
-__gloabl__ void vector_add_gpu(float *a, float *b, float *c, int n){
+// GPU implementation
+__global__ void vector_add_gpu(float *a, float *b, float *c, int n){
     int i = blockIdx.x * blockDim.x + threadIdx.x;
-    if (i < n){
+    if ( i < n){
         c[i] = a[i] + b[i];
     }
 }
 
 // Initialize vector with random values
-void int_vector(float *vec, int n){
+void init_vector(float *vec, int n){
     for (int i = 0; i < n; i++){
         vec[i] = (float)rand() / RAND_MAX;
     }
 }
 
 // Function to measure execution time
-double get_time() {
+double get_time(){
     struct timespec ts;
-    clock_gettime(CLOCK_MOVOTONIC, &ts);
+    clock_gettime(CLOCK_MONOTONIC, &ts);
     return ts.tv_sec + ts.tv_nsec * 1e-9;
 }
 
@@ -51,7 +51,8 @@ int main(){
     h_c_cpu = (float*)malloc(size);
     h_c_gpu = (float*)malloc(size);
 
-    // Initialize vectors
+
+    // Initialize vectors with random values
     srand(time(NULL));
     init_vector(h_a, N);
     init_vector(h_b, N);
@@ -65,14 +66,14 @@ int main(){
     cudaMemcpy(d_a, h_a, size, cudaMemcpyHostToDevice);
     cudaMemcpy(d_b, h_b, size, cudaMemcpyHostToDevice);
 
-    // Define grid and block dimensions
+    // Define grid and block dimentions
     int num_blocks = (N + BLOCK_SIZE - 1) / BLOCK_SIZE;
-    // N = 1024, BLOCK_SIZE = 256, num_blocks = 4
-    // (N + BLOCK_SIZE - 1) / BLOCK_SIZE = ( (1025 + 256 - 1) / 256 ) = 1280 / 256 = 4 rounded 
+    // N = 1024, BLOCK_SIZE = 256
+    // (N + BLOCK_SIZE - 1) / BLOCK_SIZE = ((1025 + 256 - 1)/ 256) = 1280 / 256 = 4 blocks
 
     // Warm-up runs
     printf("Performing warm-up runs...\n");
-    for (int i = 0; i < 3; i++) {
+    for (int i = 0; i < 10; i++){
         vector_add_cpu(h_a, h_b, h_c_cpu, N);
         vector_add_gpu<<<num_blocks, BLOCK_SIZE>>>(d_a, d_b, d_c, N);
         cudaDeviceSynchronize();
@@ -81,7 +82,7 @@ int main(){
     // Benchmark CPU implementation
     printf("Benchmarking CPU implementation...\n");
     double cpu_total_time = 0.0;
-    for (int i = 0; i < 20; i++) {
+    for (int i = 0; i < 20; i++){
         double start_time = get_time();
         vector_add_cpu(h_a, h_b, h_c_cpu, N);
         double end_time = get_time();
@@ -92,7 +93,7 @@ int main(){
     // Benchmark GPU implementation
     printf("Benchmarking GPU implementation...\n");
     double gpu_total_time = 0.0;
-    for (int i = 0; i < 20; i++) {
+    for (int i = 0; i < 20; i++){
         double start_time = get_time();
         vector_add_gpu<<<num_blocks, BLOCK_SIZE>>>(d_a, d_b, d_c, N);
         cudaDeviceSynchronize();
@@ -127,4 +128,5 @@ int main(){
     cudaFree(d_c);
 
     return 0;
+
 }
