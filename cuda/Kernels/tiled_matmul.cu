@@ -74,7 +74,8 @@
 // Total number of threads = 256
 
 
-__global__ void matrixMultiplyOptimized(float* A, float* B, float* C, int M, int N, int K){
+// CUDA KERNEL
+__global__ void matrixMulTiled(float* A, float *B, float *C, int M, int N, int K){
     __shared__ float sharedA[TILE_SIZE][TILE_SIZE];
     __shared__ float sharedB[TILE_SIZE][TILE_SIZE];
 
@@ -82,7 +83,75 @@ __global__ void matrixMultiplyOptimized(float* A, float* B, float* C, int M, int
     int tx = threadIdx.x, ty = threadIdx.y;
 
     int row = by * TILE_SIZE + ty;
-    int col = bx * TILE_SIZE +  
+    int col = bx * TILE_SIZE + tx;
 
+    float sum = 0.0f;
 
+    for (int tile = 0; tile < (K + TILE_SIZE - 1) / TILE_SIZE; tile++){
+        if (row < M && tile * TILE_SIZE + tx < K){
+            sharedA[tx][ty] = A[row * K + tile * TILE_SIZE + tx];
+        }
+        else{
+            sharedA[tx][ty] = 0.0f;
+        }
+        if (col < N && tile * TILE_SIZE + ty < K){
+            sharedB[ty][tx] = B[(tile * TILE_SIZE + ty) * N + col];
+        }
+        else{
+            sharedB[ty][tx] = 0.0f;
+        }
+        __syncthread();
+
+        for (int k = 0; k < TILE_SIZE; k++){
+            sum += sharedA[ty][k] * sharedB[k][tx];
+        }
+        __syncthreads();
+
+        if (row < M && col < N){
+            C[row * N + col] = sum;
+        }
+    }
+}
+
+int main(){
+    // Define matrix dimentions
+    const int M = 1024; // Number of rows in A and C
+    const int N = 1024; // Number of columns in B and C
+    const int K = 1024; // Number of columns in A and rows in B
+
+    // Caculate matrix sizes in bytes
+    size_t size_A = M * K * sizeof(float);
+    size_t size_B = K * N * sizeof(float);
+    size_t size_C = M * N * sizeof(float);
+
+    // Declare device pointers
+    float *d_A, *d_B, *d_C;
+
+    // Allocate memory on the device
+    cudaMalloc(&d_A, size_A);
+    cudaMalloc(&d_B, size_B);
+    cudaMalloc(&d_C, size_C);
+
+    // Kernel launch code 
+    dim3 blockDim(TILE_SIZE, TILE_SIZE);
+    dim3 gridDim((N + TILE_SIZE - 1) / TILE_SIZE, (M + TILE_SIZE - 1) / TILE_SIZE);
+    matrixMulTiled<<<gridDim, blockDim>>>(d_A, d_B, d_C, M, N, K);
+
+    // Synchronoze device
+    cudaDeviceSynchronize();
+
+    // Free device memory
+    cudaFree(d_A);
+    cudaFree(d_B);
+    cudaFree(d_C);
+
+    // Check for any CUDA errors
+    cudaError_t error = cudaGetLastError();
+    if (error != cudaSuccess){
+        std::cerr << "CUDA error: " << cudaGetErrorString(error) << std::endl;
+        return -1;
+    }
+
+    std::cout << "Matrix multiplication completed successfully!" << std::endl;
+    return 0;
 }
