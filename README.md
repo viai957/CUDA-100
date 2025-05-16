@@ -175,3 +175,7 @@ Created a visual and intuitive demonstration of CUDA's thread indexing system us
 
 This implementation serves as a fundamental building block for understanding more complex CUDA programs, as proper thread indexing is crucial for correct parallel algorithm implementation.
 
+# Day-18 but modified file name day 15, 16 (vector add Trick & Matrix Transpose)
+I did learn about writing effienct algo capitalizing on the Hardware, Shared Memory allows us to efifecnly enable how to manage mutiple threads , warps mapped to blocks which are assigned to multiprocessors on the device. During execution there is a finer grouping of threads into warps. Multiprocessors on the GPU execute instructions for each warp in SIMD (Single Instruction Multiple Data) fashion. Got very little time today as i had to work on my day job. Hope to catchup from tomorrow as its a week end. 
+
+
