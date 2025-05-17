@@ -27,10 +27,11 @@ void postprocess(const float *ref, const float *res, int n, float ms)
       passed = false;
       break;
     }
-    if (passed){
-      printf("%20.2f\n", 2 * n * sizeof(float) * 1e-6 * NUM_REPS / ms);
-    }
   }
+  if (passed)
+    printf("%20.2f\n", 2 * n * sizeof(float) * 1e-6 * NUM_REPS / ms );
+  else
+    printf("Test failed.\n");
 }
 
 
@@ -109,36 +110,36 @@ void postprocess(const float *ref, const float *res, int n, float ms)
   // 3	16	(51, 69)	51×1024 + 69 = 52,205	odata[52,205] = idata[52,205]
   // 4	24	(59, 69)	59×1024 + 69 = 60,373	odata[60,373] = idata[60,373]
 
+
+  // simple copy kernel
+  // Used as reference case representing best effective bandwidth
   __global__ void copy(float *odata, const float *idata)
   {
     int x = blockIdx.x * TILE_DIM + threadIdx.x;
     int y = blockIdx.y * TILE_DIM + threadIdx.y;
     int width = gridDim.x * TILE_DIM;
 
-    for (int j = 0; j < TILE_DIM; j += BLOCK_ROWS) {
+    for (int j = 0; j < TILE_DIM; j+= BLOCK_ROWS){
       odata[(y+j)*width + x] = idata[(y+j)*width + x];
     }
   }
 
   // copy kernel using shared memory
-  __global__ void copySharedMem(float *odata, const float *idata)
-  {
-    __shared__ float tile[TILE_DIM][TILE_DIM];
-    
-    int x = blockIdx.x * TILE_DIM + threadIdx.x;
-    int y = blockIdx.y * TILE_DIM + threadIdx.y;
-    int width = gridDim.x * TILE_DIM;
+ // also acting as reference case, demonstrating effect of using shared memory
+ __global__ void copySharedMemory(float *odata, const float *idata)
+ {
+  __shared__ float tile[TILE_DIM * TILE_DIM];
 
-    for (int j = 0; j < TILE_DIM; j += BLOCK_ROWS) {
-      tile[threadIdx.y+j][threadIdx.x] = idata[(y+j)*width + x];
-    }
-    
-    __syncthreads();
-    
-    for (int j = 0; j < TILE_DIM; j += BLOCK_ROWS) {
-      odata[(y+j)*width + x] = tile[threadIdx.y+j][threadIdx.x];
-    }
-  }
+  int x = blockIdx.x * TILE_DIM + threadIdx.x;
+  int y = blockIdx.y * TILE_DIM + threadIdx.y;
+  int width = gridDim.x * TILE_DIM;
+
+  for (int j = 0; j < TILE_DIM; j += BLOCK_ROWS)
+    tile[(threadIdx.y+j)*TILE_DIM + threadIdx.x] = idata[(y+j)*width + x];
+  __syncthreads();
+  for (int j = 0; j < TILE_DIM; j += BLOCK_ROWS)
+    odata[(y+j)*width + x] = tile[(threadIdx.y+j)*TILE_DIM + threadIdx.x];
+ }
 
   // naive transpose kernel 
   // Simple transpose kernel; dosn't use shared memory
@@ -153,7 +154,6 @@ void postprocess(const float *ref, const float *res, int n, float ms)
   // 1	0	(35, 69)	(35×1024)+69 = 35,869	(69, 35)	(69×1024)+35 = 70,675	odata[70,675] = idata[35,869]
   // 2	8	(43, 69)	(43×1024)+69 = 44,037	(69, 43)	(69×1024)+43 = 70,683	odata[70,683] = idata[44,037]
   // 3	16	(51, 69)	(51×1024)+69 = 52,205	(69, 51)	(69×1024)+51 = 70,691	odata[70,691] = idata[52,205]
-  // 4	24	(59, 69)	(59×1024)+69 = 60,373	(69, 59)	(69×1024)+59 = 70,699	odata[70,699] = idata[60,373]
   // 4	24	(59, 69)	(59×1024)+69 = 60,373	(69, 59)	(69×1024)+59 = 70,699	odata[70,699] = idata[60,373]
   __global__ void transposeNaive(float *odata, const float *idata)
   {
@@ -301,181 +301,162 @@ void postprocess(const float *ref, const float *res, int n, float ms)
 
   // Main function
   int main(int argc, char **argv)
-{
-  const int nx = 1024;
-  const int ny = 1024;
-  const int mem_size = nx*ny*sizeof(float);
+  {
+    const int nx = 1024;
+    const int ny = 1024;
+    const int mem_size = nx * ny * sizeof(float);
 
-  dim3 dimGrid(nx/TILE_DIM, ny/TILE_DIM, 1);
-  dim3 dimBlock(TILE_DIM, BLOCK_ROWS, 1);
+    dim3 dimGrid(nx / TILE_DIM, ny / TILE_DIM, 1);
+    dim3 dimBlock(TILE_DIM, BLOCK_ROWS, 1);
 
-  int devId = 0;
-  if (argc > 1) devId = atoi(argv[1]);
+    int devId = 0;
+    if (argc > 1) devId = atoi(argv[1]);
 
-  cudaDeviceProp prop;
-  checkCuda( cudaGetDeviceProperties(&prop, devId));
-  printf("\nDevice : %s\n", prop.name);
-  printf("Matrix size: %d %d, Block size: %d %d, Tile size: %d %d\n", 
-         nx, ny, TILE_DIM, BLOCK_ROWS, TILE_DIM, TILE_DIM);
-  printf("dimGrid: %d %d %d. dimBlock: %d %d %d\n",
-         dimGrid.x, dimGrid.y, dimGrid.z, dimBlock.x, dimBlock.y, dimBlock.z);
-  
-  checkCuda( cudaSetDevice(devId) );
-
-  float *h_idata = (float*)malloc(mem_size);
-  float *h_cdata = (float*)malloc(mem_size);
-  float *h_tdata = (float*)malloc(mem_size);
-  float *gold    = (float*)malloc(mem_size);
-  
-  float *d_idata, *d_cdata, *d_tdata;
-  checkCuda( cudaMalloc(&d_idata, mem_size) );
-  checkCuda( cudaMalloc(&d_cdata, mem_size) );
-  checkCuda( cudaMalloc(&d_tdata, mem_size) );
-
-  // check parameters and calculate execution configuration
-  if (nx % TILE_DIM || ny % TILE_DIM) {
-    printf("nx and ny must be a multiple of TILE_DIM\n");
-    goto error_exit;
-  }
-
-  if (TILE_DIM % BLOCK_ROWS) {
-    printf("TILE_DIM must be a multiple of BLOCK_ROWS\n");
-    goto error_exit;
-  }
+    cudaDeviceProp prop;
+    checkCuda(cudaGetDeviceProperties(&prop, devId));
+    printf("Using device %d: %s\n", devId, prop.name);
+    printf("Matrix size: %d %d, BLOCK size: %d %d, TILE size: %d %d\n",
+           nx, ny, dimBlock.x, dimBlock.y, TILE_DIM, BLOCK_ROWS);
+    printf("dimGrid: %d %d %d. dimBlock: %d %d %d\n",
+         dimGrid.x, dimGrid.y, dimGrid.z, dimBlock.x, dimBlock.y, dimBlock.z); 
     
-  // host
-  for (int j = 0; j < ny; j++)
-    for (int i = 0; i < nx; i++)
-      h_idata[j*nx + i] = j*nx + i;
+    checkCuda(cudaSetDevice(devId));
 
-  // correct result for error checking
-  for (int j = 0; j < ny; j++)
-    for (int i = 0; i < nx; i++)
-      gold[j*nx + i] = h_idata[i*nx + j];
-  
-  // device
-  checkCuda( cudaMemcpy(d_idata, h_idata, mem_size, cudaMemcpyHostToDevice) );
-  
-  // events for timing
-  cudaEvent_t startEvent, stopEvent;
-  checkCuda( cudaEventCreate(&startEvent) );
-  checkCuda( cudaEventCreate(&stopEvent) );
-  float ms;
+    float *h_idata = (float *)malloc(mem_size);
+    float *h_cdata = (float *)malloc(mem_size);
+    float *h_tdata = (float *)malloc(mem_size);
+    float *gold = (float *)malloc(mem_size);
+    
+    float *d_idata, *d_cdata, *d_tdata;
+    checkCuda(cudaMalloc(&d_idata, mem_size));
+    checkCuda(cudaMalloc(&d_cdata, mem_size));
+    checkCuda(cudaMalloc(&d_tdata, mem_size));
 
-  // ------------
-  // time kernels
-  // ------------
-  printf("%25s%25s\n", "Routine", "Bandwidth (GB/s)");
-  
-  // ----
-  // copy 
-  // ----
-printf("\nStarting copy kernel...\n");
-printf("%25s", "copy");
-checkCuda( cudaMemset(d_cdata, 0, mem_size) );
-// warm up
-copy<<<dimGrid, dimBlock>>>(d_cdata, d_idata);
-printf("Launched copy kernel.\n");
-checkCuda( cudaEventRecord(startEvent, 0) );
-for (int i = 0; i < NUM_REPS; i++)
-   copy<<<dimGrid, dimBlock>>>(d_cdata, d_idata);
-printf("Completed %d repetitions of copy kernel.\n", NUM_REPS);
-checkCuda( cudaEventRecord(stopEvent, 0) );
-checkCuda( cudaEventSynchronize(stopEvent) );
-checkCuda( cudaEventElapsedTime(&ms, startEvent, stopEvent) );
-checkCuda( cudaMemcpy(h_cdata, d_cdata, mem_size, cudaMemcpyDeviceToHost) );
-printf("Copy kernel finished, running postprocess...\n");
-postprocess(h_idata, h_cdata, nx*ny, ms);
+    // check parameters and calculate execution configuration
+    if (nx % TILE_DIM || ny % TILE_DIM){
+      printf("nx and ny must be a multiple of TILE_DIM\n");
+      goto error_exit;
+    }
 
-  // -------------
-  // copySharedMem 
-  // -------------
-printf("\nStarting shared memory copy kernel...\n");
-printf("%25s", "shared memory copy");
-checkCuda( cudaMemset(d_cdata, 0, mem_size) );
-// warm up
-copySharedMem<<<dimGrid, dimBlock>>>(d_cdata, d_idata);
-printf("Launched shared memory copy kernel.\n");
-checkCuda( cudaEventRecord(startEvent, 0) );
-for (int i = 0; i < NUM_REPS; i++)
-   copySharedMem<<<dimGrid, dimBlock>>>(d_cdata, d_idata);
-printf("Completed %d repetitions of shared memory copy kernel.\n", NUM_REPS);
-checkCuda( cudaEventRecord(stopEvent, 0) );
-checkCuda( cudaEventSynchronize(stopEvent) );
-checkCuda( cudaEventElapsedTime(&ms, startEvent, stopEvent) );
-checkCuda( cudaMemcpy(h_cdata, d_cdata, mem_size, cudaMemcpyDeviceToHost) );
-printf("Shared memory copy kernel finished, running postprocess...\n");
-postprocess(h_idata, h_cdata, nx * ny, ms);
+    if (TILE_DIM % BLOCK_ROWS){
+      printf("TILE_DIM must be a multiple of BLOCK_ROWS\n");
+      goto error_exit;
+    }
 
-  // --------------
-  // transposeNaive 
-  // --------------
-printf("\nStarting naive transpose kernel...\n");
-printf("%25s", "naive transpose");
-checkCuda( cudaMemset(d_tdata, 0, mem_size) );
-// warmup
-transposeNaive<<<dimGrid, dimBlock>>>(d_tdata, d_idata);
-printf("Launched naive transpose kernel.\n");
-checkCuda( cudaEventRecord(startEvent, 0) );
-for (int i = 0; i < NUM_REPS; i++)
-   transposeNaive<<<dimGrid, dimBlock>>>(d_tdata, d_idata);
-printf("Completed %d repetitions of naive transpose kernel.\n", NUM_REPS);
-checkCuda( cudaEventRecord(stopEvent, 0) );
-checkCuda( cudaEventSynchronize(stopEvent) );
-checkCuda( cudaEventElapsedTime(&ms, startEvent, stopEvent) );
-checkCuda( cudaMemcpy(h_tdata, d_tdata, mem_size, cudaMemcpyDeviceToHost) );
-printf("Naive transpose kernel finished, running postprocess...\n");
-postprocess(gold, h_tdata, nx * ny, ms);
+    // host
+    for (int j = 0; j < ny; j++)
+      for (int i = 0; i < nx; i++)
+        h_idata[j*nx + i] = j*nx + i;
+        
+    // Initialize gold standard for comparison
+    for (int j = 0; j < ny; j++)
+      for (int i = 0; i < nx; i++)
+        gold[j*nx + i] = h_idata[i*nx + j];
 
-  // ------------------
-  // transposeCoalesced 
-  // ------------------
-printf("\nStarting coalesced transpose kernel...\n");
-printf("%25s", "coalesced transpose");
-checkCuda( cudaMemset(d_tdata, 0, mem_size) );
-// warmup
-transposeCoalesced<<<dimGrid, dimBlock>>>(d_tdata, d_idata);
-printf("Launched coalesced transpose kernel.\n");
-checkCuda( cudaEventRecord(startEvent, 0) );
-for (int i = 0; i < NUM_REPS; i++)
-   transposeCoalesced<<<dimGrid, dimBlock>>>(d_tdata, d_idata);
-printf("Completed %d repetitions of coalesced transpose kernel.\n", NUM_REPS);
-checkCuda( cudaEventRecord(stopEvent, 0) );
-checkCuda( cudaEventSynchronize(stopEvent) );
-checkCuda( cudaEventElapsedTime(&ms, startEvent, stopEvent) );
-checkCuda( cudaMemcpy(h_tdata, d_tdata, mem_size, cudaMemcpyDeviceToHost) );
-printf("Coalesced transpose kernel finished, running postprocess...\n");
-postprocess(gold, h_tdata, nx * ny, ms);
+    // device
+    checkCuda(cudaMemcpy(d_idata, h_idata, mem_size, cudaMemcpyHostToDevice));
 
-  // ------------------------
-  // transposeNoBankConflicts
-  // ------------------------
-printf("\nStarting conflict-free transpose kernel...\n");
-printf("%25s", "conflict-free transpose");
-checkCuda( cudaMemset(d_tdata, 0, mem_size) );
-// warmup
-transposeNoBankConflicts<<<dimGrid, dimBlock>>>(d_tdata, d_idata);
-printf("Launched conflict-free transpose kernel.\n");
-checkCuda( cudaEventRecord(startEvent, 0) );
-for (int i = 0; i < NUM_REPS; i++)
-   transposeNoBankConflicts<<<dimGrid, dimBlock>>>(d_tdata, d_idata);
-printf("Completed %d repetitions of conflict-free transpose kernel.\n", NUM_REPS);
-checkCuda( cudaEventRecord(stopEvent, 0) );
-checkCuda( cudaEventSynchronize(stopEvent) );
-checkCuda( cudaEventElapsedTime(&ms, startEvent, stopEvent) );
-checkCuda( cudaMemcpy(h_tdata, d_tdata, mem_size, cudaMemcpyDeviceToHost) );
-printf("Conflict-free transpose kernel finished, running postprocess...\n");
-postprocess(gold, h_tdata, nx * ny, ms);
+    // events for timing
+    cudaEvent_t startEvent, stopEvent;
+    checkCuda(cudaEventCreate(&startEvent));
+    checkCuda(cudaEventCreate(&stopEvent));
+    float ms;
 
-error_exit:
-  // cleanup
-  checkCuda( cudaEventDestroy(startEvent) );
-  checkCuda( cudaEventDestroy(stopEvent) );
-  checkCuda( cudaFree(d_tdata) );
-  checkCuda( cudaFree(d_cdata) );
-  checkCuda( cudaFree(d_idata) );
-  free(h_idata);
-  free(h_tdata);
-  free(h_cdata);
-  free(gold);
-}
+    // ----------------
+    // time kernels
+    // ----------------
+    printf("%25s%25s%25s%25s\n", "Kernel", "Time (ms)", "Bandwidth (GB/s)", "Error");
+    printf("%25s%25s%25s%25s\n", "------", "--------", "----------------", "-----");
+
+    // ------------
+    // copy kernel
+    // ------------
+    printf("%25s", "copy");
+    checkCuda(cudaEventRecord(startEvent, 0));
+    for (int i = 0; i < NUM_REPS; i++)
+      copy<<<dimGrid, dimBlock>>>(d_cdata, d_idata);
+    checkCuda(cudaEventRecord(stopEvent, 0));
+    checkCuda(cudaEventSynchronize(stopEvent));
+    checkCuda(cudaEventElapsedTime(&ms, startEvent, stopEvent));
+    checkCuda(cudaMemcpy(h_cdata, d_cdata, mem_size, cudaMemcpyDeviceToHost));
+    postprocess(h_idata, h_cdata, nx*ny, ms);
+
+
+    // ------------
+    // copy kernel with shared memory
+    // ------------
+    printf("%25s", "shared memory copy");
+    checkCuda(cudaMemset(d_cdata, 0, mem_size));
+    // warm up
+    copySharedMemory<<<dimGrid, dimBlock>>>(d_cdata, d_idata);
+    checkCuda(cudaEventRecord(startEvent, 0));
+    for (int i = 0; i < NUM_REPS; i++)
+      copySharedMemory<<<dimGrid, dimBlock>>>(d_cdata, d_idata);
+    checkCuda(cudaEventRecord(stopEvent, 0));
+    checkCuda(cudaEventSynchronize(stopEvent));
+    checkCuda(cudaEventElapsedTime(&ms, startEvent, stopEvent));
+    checkCuda(cudaMemcpy(h_cdata, d_cdata, mem_size, cudaMemcpyDeviceToHost));
+    postprocess(h_idata, h_cdata, nx*ny, ms);
+
+    // -------------
+    // transpose naive
+    // -------------
+    printf("%25s", "transpose naive");
+    checkCuda(cudaMemset(d_tdata, 0, mem_size));
+    // warm up
+    transposeNaive<<<dimGrid, dimBlock>>>(d_tdata, d_idata);
+    checkCuda(cudaEventRecord(startEvent, 0));
+    for (int i = 0; i < NUM_REPS; i++)
+      transposeNaive<<<dimGrid, dimBlock>>>(d_tdata, d_idata);
+    checkCuda(cudaEventRecord(stopEvent, 0));
+    checkCuda(cudaEventSynchronize(stopEvent));
+    checkCuda(cudaEventElapsedTime(&ms, startEvent, stopEvent));
+    checkCuda(cudaMemcpy(h_tdata, d_tdata, mem_size, cudaMemcpyDeviceToHost));
+    postprocess(gold, h_tdata, nx*ny, ms);
+
+    // -------------
+    // transpose coalesced
+    // -------------
+    printf("%25s", "transpose coalesced");
+    checkCuda(cudaMemset(d_tdata, 0, mem_size));
+    // warm up
+    transposeCoalesced<<<dimGrid, dimBlock>>>(d_tdata, d_idata);
+    checkCuda(cudaEventRecord(startEvent, 0));
+    for (int i = 0; i < NUM_REPS; i++)
+      transposeCoalesced<<<dimGrid, dimBlock>>>(d_tdata, d_idata);
+    checkCuda(cudaEventRecord(stopEvent, 0));
+    checkCuda(cudaEventSynchronize(stopEvent));
+    checkCuda(cudaEventElapsedTime(&ms, startEvent, stopEvent));
+    checkCuda(cudaMemcpy(h_tdata, d_tdata, mem_size, cudaMemcpyDeviceToHost));
+    postprocess(gold, h_tdata, nx*ny, ms);
+
+    // -------------
+    // transpose no bank conflicts
+    // -------------
+    printf("%25s", "transpose no bank conflicts");
+    checkCuda(cudaMemset(d_tdata, 0, mem_size));
+    // warm up
+    transposeNoBankConflicts<<<dimGrid, dimBlock>>>(d_tdata, d_idata);
+    checkCuda(cudaEventRecord(startEvent, 0));
+    for (int i = 0; i < NUM_REPS; i++)
+      transposeNoBankConflicts<<<dimGrid, dimBlock>>>(d_tdata, d_idata);
+    checkCuda(cudaEventRecord(stopEvent, 0));
+    checkCuda(cudaEventSynchronize(stopEvent));
+    checkCuda(cudaEventElapsedTime(&ms, startEvent, stopEvent));
+    checkCuda(cudaMemcpy(h_tdata, d_tdata, mem_size, cudaMemcpyDeviceToHost));
+    postprocess(gold, h_tdata, nx*ny, ms);
+
+  error_exit:
+    // cleanup
+    checkCuda(cudaEventDestroy(startEvent));
+    checkCuda(cudaEventDestroy(stopEvent));
+    checkCuda(cudaFree(d_idata));
+    checkCuda(cudaFree(d_cdata));
+    checkCuda(cudaFree(d_tdata));
+    free(h_idata);
+    free(h_cdata);
+    free(h_tdata);
+    free(gold);
+    checkCuda(cudaDeviceReset());
+    return 0;
+  }
