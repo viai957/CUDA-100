@@ -18,6 +18,26 @@ class MultiHeadAttentionBlock(nn.Module):
         self.w_o = nn.Linear(d_model, d_model, bias=False) # W_o
         self.dropout = nn.Dropout(dropout)
 
+    def forward(self, q, k, v, mask=None):
+        batch_size = q.size(0)
+        
+        # Linear projections
+        q_proj = self.w_q(q)  # (batch_size, seq_len, d_model)
+        k_proj = self.w_k(k)  # (batch_size, seq_len, d_model)
+        v_proj = self.w_v(v)  # (batch_size, seq_len, d_model)
+        
+        # Split into h heads
+        q_proj = q_proj.view(batch_size, -1, self.h, self.d_k).transpose(1, 2)  # (batch_size, h, seq_len, d_k)
+        k_proj = k_proj.view(batch_size, -1, self.h, self.d_k).transpose(1, 2)  # (batch_size, h, seq_len, d_k)
+        v_proj = v_proj.view(batch_size, -1, self.h, self.d_k).transpose(1, 2)  # (batch_size, h, seq_len, d_k)
+        
+        # Apply attention
+        output, _ = self.attention(q_proj, k_proj, v_proj, mask, self.dropout)
+        
+        # Concatenate heads and pass through final linear layer
+        output = output.transpose(1, 2).contiguous().view(batch_size, -1, self.d_model)  # (batch_size, seq_len, d_model)
+        return self.w_o(output)
+
     @staticmethod
     def attention(query, key, value, mask, dropout: nn.Dropout):
         d_k = query.shape[-1]
