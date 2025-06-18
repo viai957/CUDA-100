@@ -28,7 +28,6 @@ void linear_backward_gpu(float *inp, float *weights, float *out, int bs, int n_i
 
     if ((row < bs) && (col < n_out)){
         ind_out = row*n_out + col;
-
         for (int i=0; i<n_in; i++){
             ind_inp = row*n_in + i;
             ind_weights = i*n_out + col;
