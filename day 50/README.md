@@ -9,6 +9,7 @@ This project provides optimized CUDA kernels for the Whisper speech recognition 
   - Linear (fully connected) layers
   - GELU activation function
   - Multi-head attention (self-attention and cross-attention)
+  - Conv1d (1D convolution) for audio processing
 
 - **Half-precision (FP16) computation** for maximum throughput on modern GPUs
 
@@ -27,8 +28,8 @@ This project provides optimized CUDA kernels for the Whisper speech recognition 
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/whisper-cuda.git
-cd whisper-cuda
+git clone https://github.com/viai957/CUDA-100.git
+cd day 50/whisper_cuda
 
 # Install the package
 pip install -e .
@@ -40,13 +41,14 @@ pip install -e .
 
 ```python
 import torch
-from whisper_cuda import CUDALayerNorm, CUDALinear, CUDAGELU, CUDAMultiHeadAttention
+from whisper_cuda import CUDALayerNorm, CUDALinear, CUDAGELU, CUDAMultiHeadAttention, Conv1d
 
 # Create CUDA components
 layernorm = CUDALayerNorm(512).cuda().half()
 linear = CUDALinear(512, 2048).cuda().half()
 gelu = CUDAGELU().cuda()
 mha = CUDAMultiHeadAttention(512, 8).cuda().half()
+conv1d = Conv1d(in_channels=384, out_channels=384, kernel_size=3, padding=1).cuda().half()
 
 # Use them in your model
 x = torch.randn(1, 100, 512, dtype=torch.float16, device="cuda")
@@ -54,6 +56,10 @@ x = layernorm(x)
 x = linear(x)
 x = gelu(x)
 x, _ = mha(x)
+
+# For Conv1d (used in audio encoder)
+audio_input = torch.randn(1, 384, 1500, dtype=torch.float16, device="cuda")
+audio_features = conv1d(audio_input)
 ```
 
 ### Using the full CUDA Whisper model
@@ -91,6 +97,9 @@ python test_gelu.py --size 1000000
 # Benchmark MultiHeadAttention
 python test_attention.py --batch-size 2 --seq-len 32 --embed-dim 512 --num-heads 8
 
+# Benchmark Conv1d
+python test_conv1d.py
+
 # Benchmark full Whisper model
 python whisper_cuda_model.py --model tiny --batch-size 1 --seq-len 3000
 ```
@@ -103,6 +112,7 @@ Performance varies by operation and hardware, but typical speedups on an A100 GP
 - Linear: 1.1-1.3x
 - GELU: 1.2-1.5x
 - MultiHeadAttention: 1.3-1.8x
+- Conv1d: 1.2-1.5x
 - Full Whisper model: 1.2-1.5x
 
 ## Implementation Details
@@ -129,6 +139,13 @@ Performance varies by operation and hardware, but typical speedups on an A100 GP
 - Fused QKV projection
 - Optimized scaled dot-product attention with shared memory
 - Support for causal masking and cross-attention
+
+### Conv1d
+
+- Optimized 1D convolution for audio processing in Whisper encoder
+- Specialized kernel for common case (kernel_size=3, stride=1, padding=1)
+- Shared memory utilization for weight reuse
+- Support for various kernel sizes (3, 5, 7)
 
 ## Contributing
 

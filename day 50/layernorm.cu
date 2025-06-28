@@ -38,6 +38,21 @@ struct alignas(sizeof(T) * N) PackType { T elem[N]; };
 /* ------------------------------------------------------------------ */
 /* Two Welford “combine” overloads                                    */
 /* ------------------------------------------------------------------ */
+/*
+ * Welford's Online Algorithm (intuitively):
+ * 
+ * Let’s say:
+ * - n is the updated count.
+ * - μₙ is the new mean.
+ * - μₙ₋₁ is the previous mean.
+ * - x is the new data point.
+ * 
+ * Then the mean update:
+ *   μₙ = μₙ₋₁ + (x - μₙ₋₁) / n
+ * 
+ * Then the M2 (sum of squared deviations) update:
+ *   M2ₙ = M2ₙ₋₁ + (x - μₙ₋₁)(x - μₙ)
+ */
 /* (A) Combine a single scalar into running stats */
 template<typename T>
 __device__ __forceinline__ void WelfordCombine(T x, T* mean, T* m2, T* count)
@@ -77,6 +92,20 @@ __device__ __forceinline__ void WelfordCombine(T b_mean, T b_m2, T b_count,
 /* ------------------------------------------------------------------ */
 /* Warp-level reduction helpers                                       */
 /* ------------------------------------------------------------------ */
+/*
+ * WelfordWarpReduce uses warp shuffle instructions (__shfl_down_sync)
+ * to efficiently combine Welford accumulators across threads within a warp.
+ *
+ * Why we use __shfl instead of shared memory:
+ * - __shfl_* is hardware-accelerated and operates directly on registers
+ * - It avoids memory access, synchronization, and arbitration latency
+ * - Intra-warp threads execute in lockstep, so no explicit __syncthreads() needed
+ * - Latency is ~1–2 cycles vs 10–30+ cycles for shared memory
+ *
+ * Shared memory would only be used if we needed communication across warps,
+ * or required inter-thread buffering. For purely warp-local reduction,
+ * warp shuffles are optimal.
+ */
 template<typename T, int thread_group_width = kWarpSize>
 __device__ __forceinline__ void WelfordWarpReduce(T thread_mean, T thread_m2, T thread_count,
                                                   T* mean, T* m2, T* count)
@@ -126,7 +155,7 @@ struct GlobalMem {
 };
 
 /* ------------------------------------------------------------------ */
-/* LayerNorm kernel (exactly your template, wired with parameters)    */
+/* LayerNorm kernel */
 /* ------------------------------------------------------------------ */
 template<typename LOAD, typename STORE, typename ComputeType,
          int pack_size, int cols_per_thread,
